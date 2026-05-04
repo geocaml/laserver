@@ -6,16 +6,16 @@ let ( let* ) = Result.bind
 a Repr of anything other than basic types. *)
 
 module RTile = struct
-  type t = { key : string; bounds : Rtree.Rectangle.t }
+  type t = { name : string; bounds : Rtree.Rectangle.t }
 
   let t =
     let open Repr in
-    record "tile" (fun key bounds -> { key; bounds })
-    |+ field "key" string (fun t -> t.key)
+    record "tile" (fun name bounds -> { name; bounds })
+    |+ field "name" string (fun t -> t.name)
     |+ field "bounds" Rtree.Rectangle.t (fun t -> t.bounds)
     |> sealr
 
-  let k t = t.key
+  let n t = t.name
 
   type envelope = Rtree.Rectangle.t
 
@@ -36,11 +36,11 @@ let build_state tile_list =
   in
   let rtiles =
     List.map
-      (fun (key, tile) ->
+      (fun (name, tile) ->
         let header = Oclas.Las.header tile.info in
         let (x0, y0, _), (x1, y1, _) = Oclas.Header.bounds header in
         let bounds = Rtree.Rectangle.v ~x0 ~y0 ~x1 ~y1 in
-        RTile.{ key; bounds })
+        RTile.{ name; bounds })
       tile_map
   in
   let rtree = R.load rtiles in
@@ -100,27 +100,39 @@ let get_point_query state req =
   let tiles =
     List.map
       (fun rtile ->
-        let key = RTile.k rtile in
+        let key = RTile.n rtile in
         (key, List.assoc key state.tile_map))
       keys
   in
   Ok tiles
 
-let handler state _socket req _body =
+
+let render_index state _req =
+  let body = tiles_to_json state.tile_map in
+  Cohttp_eio.Server.respond_string ~status:`OK ~body ()
+
+let render_find state req =
+  let open Cohttp_eio in
+  match get_point_query state req with
+  | Error str -> Server.respond_string ~status:`Not_acceptable ~body:str ()
+  | Ok tiles ->
+      let body = tiles_to_json tiles in
+      Server.respond_string ~status:`OK ~body ()
+
+let render_static_file path _state _req =
+    ()
+
+let handler routes state _socket req _body =
   let open Cohttp_eio in
   let uri = Uri.of_string (Http.Request.resource req) in
   let path = Uri.path uri in
-  (* strips the query string *)
-  match (Http.Request.meth req, path) with
-  | `GET, "/" ->
-      let body = tiles_to_json state.tile_map in
-      Server.respond_string ~status:`OK ~body ()
-  | `GET, "/find" -> (
-      match get_point_query state req with
-      | Error str -> Server.respond_string ~status:`Not_acceptable ~body:str ()
-      | Ok tiles ->
-          let body = tiles_to_json tiles in
-          Server.respond_string ~status:`OK ~body ())
+
+  match Http.Request.meth req with
+  | `GET -> (
+    match List.assoc_opt path routes with
+    | Some handler -> handler state req
+    | None -> Server.respond_string ~status:`Not_found ~body:"Not found\n" ()
+  )
   | _ -> Server.respond_string ~status:`Not_found ~body:"Not found\n" ()
 
 let log_error ex = Printf.eprintf "Server error: %s\n%!" (Printexc.to_string ex)
@@ -134,13 +146,24 @@ let laserver env sw path =
   let tiles = find_las_files sw dir in
   let state = build_state tiles in
 
+  let fixed_routes = [
+    ("/",  render_index);
+    ("/find", render_find)
+  ] in
+
+  let static_routes = List.map (fun (name, tile) ->
+    ("/tile/" ^ name, render_static_file tile.path)
+  ) state.tile_map in
+
+  let routes = fixed_routes @ static_routes in
+
   let socket =
     Eio.Net.listen env#net ~sw ~backlog:128 ~reuse_addr:true
       (`Tcp (Eio.Net.Ipaddr.V4.loopback, 8080))
   in
   Printf.printf "Listening on http://localhost:8080\n%!";
   Cohttp_eio.Server.run socket ~on_error:log_error
-    (Cohttp_eio.Server.make ~callback:(handler state) ())
+    (Cohttp_eio.Server.make ~callback:(handler routes state) ())
 
 let () =
   Eio_main.run @@ fun env ->
