@@ -116,7 +116,10 @@ let get_point_query state req =
   let uri = Uri.of_string (Http.Request.resource req) in
   let* x = get_float_query uri "x" in
   let* y = get_float_query uri "y" in
-  let radius = 2500. in (* this should come from the client? *)
+  let radius = match get_float_query uri "r" with
+  | Ok r -> r
+  | Error _ -> 2500.
+  in
   let envelope = Rtree.Rectangle.v ~x0:(x -. radius) ~y0:(y -. radius) ~x1:(x +. radius) ~y1:(y +. radius) in
   let rtiles = R.find state.rtree envelope in
   Ok rtiles

@@ -727,8 +727,9 @@ let tilesGroup = null;
 let fetchCenter = null;
 const loadedTileNames = new Set();
 
-const REFETCH_THRESHOLD = 1200;  // m — re-query when target drifts this far from last fetch
-const EVICT_DISTANCE    = 4500;  // m — drop tiles whose center exceeds this
+const FETCH_RADIUS       = 5000;  // m — radius passed to /api/find (covers 5×5 tile grid)
+const REFETCH_THRESHOLD  = 1200;  // m — re-query when target drifts this far from last fetch
+const EVICT_DISTANCE     = 7500;  // m — drop tiles whose center exceeds this
 
 let resolveOffset;
 const offsetReady = new Promise(r => { resolveOffset = r; });
@@ -1096,7 +1097,7 @@ async function refreshTiles(cx, cy) {
 
     let tileInfos;
     try {
-      tileInfos = await fetch(`/api/find?x=${cx}&y=${cy}`).then(r => r.json());
+      tileInfos = await fetch(`/api/find?x=${cx}&y=${cy}&r=${FETCH_RADIUS}`).then(r => r.json());
     } catch (err) {
       console.error('tile refresh failed:', err);
       return;
@@ -1165,7 +1166,7 @@ async function init() {
 
   loadLandcover();  // fire and forget — button appears when ready
 
-  const tileFiles = await fetch(`/api/find?x=${CENTER_X}&y=${CENTER_Y}`).then(r => r.json());
+  const tileFiles = await fetch(`/api/find?x=${CENTER_X}&y=${CENTER_Y}&r=${FETCH_RADIUS}`).then(r => r.json());
   tileStates = tileFiles.map(makeTile);
   for (const tile of tileStates) loadedTileNames.add(tile.name);
   fetchCenter = { x: CENTER_X, y: CENTER_Y };
