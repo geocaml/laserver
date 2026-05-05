@@ -58,12 +58,12 @@ let build_state tile_list =
   let rtree = R.load rtiles in
   { tile_map; rtree }
 
-let rec find_las_files sw dir_path =
+let rec find_las_files' sw dir_path =
   Eio.Path.read_dir dir_path
   |> List.concat_map (fun item ->
       let path = Eio.Path.(dir_path / item) in
       match Eio.Path.is_directory path with
-      | true -> find_las_files sw path
+      | true -> find_las_files' sw path
       | false -> (
           match String.ends_with ~suffix:".laz" item with
           | false -> []
@@ -72,6 +72,10 @@ let rec find_las_files sw dir_path =
               let buf = Eio.Buf_read.of_flow flow ~max_size:1_000_000 in
               let info = Oclas.Las.of_buffer buf in
               match info with Ok info -> [ { path; info } ] | Error _ -> [])))
+
+let find_las_files dir_path =
+  Eio.Switch.run @@ fun sw ->
+  find_las_files' sw dir_path
 
 let rtiles_to_json rtiles =
   `List
@@ -82,6 +86,7 @@ let rtiles_to_json rtiles =
          `Assoc
            [
              ("name", `String name);
+             ("path", `String ("/tile/" ^ name));
              ("point_count", `Int (RTile.point_count rtile));
              ( "bounds",
                `Assoc
@@ -111,7 +116,8 @@ let get_point_query state req =
   let uri = Uri.of_string (Http.Request.resource req) in
   let* x = get_float_query uri "x" in
   let* y = get_float_query uri "y" in
-  let envelope = Rtree.Rectangle.v ~x0:x ~y0:y ~x1:(x +. 1.) ~y1:(y +. 1.) in
+  let radius = 2500. in (* this should come from the client? *)
+  let envelope = Rtree.Rectangle.v ~x0:(x -. radius) ~y0:(y -. radius) ~x1:(x +. radius) ~y1:(y +. radius) in
   let rtiles = R.find state.rtree envelope in
   Ok rtiles
 
@@ -129,20 +135,12 @@ let render_find state req =
       let body = rtiles_to_json tiles in
       Server.respond_string ~status:`OK ~body ()
 
-let render_static_file sw path _state req =
+let render_static_file path _state req =
+  Eio.Switch.run @@ fun sw ->
   let stat = Eio.Path.stat ~follow:true path in
   let mtime = Option.get (Ptime.of_float_s stat.mtime) in
   let last_modified = Util.ptime_to_last_modified mtime in
   let content_type = Magic_mime.lookup (Eio.Path.native_exn path) in
-  let headers =
-    Http.Header.of_list
-      [
-        ("Accept-Ranges", "bytes");
-        ("Content-Length", Optint.Int63.to_string stat.size);
-        ("Content-Type", content_type);
-        ("Last-Modified", last_modified);
-      ]
-  in
 
   let file = Eio.Path.open_in ~sw path in
 
@@ -153,14 +151,53 @@ let render_static_file sw path _state req =
   | Some range_str when String.starts_with ~prefix:"bytes=" range_str -> (
       match Util.parse_range range_str file_size with
       | Some (start_pos, end_pos) ->
-          let len = Int64.sub end_pos start_pos in
+          let len = Int64.add (Int64.sub end_pos start_pos) 1L in
+          let headers =
+            Http.Header.of_list
+              [
+                ("Accept-Ranges", "bytes");
+                ("Content-Length", Int64.to_string len);
+                ( "Content-Range",
+                  Printf.sprintf "bytes %Ld-%Ld/%Ld" start_pos end_pos file_size );
+                ("Content-Type", content_type);
+                ("Last-Modified", last_modified);
+              ]
+          in
+
+
           let _ = Eio.File.seek file (Optint.Int63.of_int64 start_pos) `Set in
           let buf = Eio.Buf_read.of_flow file ~max_size:(Int64.to_int len) in
           let bytes = Eio.Buf_read.take (Int64.to_int len) buf in
           let body = Eio.Flow.string_source bytes in
           Cohttp_eio.Server.respond ~status:`Partial_content ~headers ~body ()
-      | None -> Cohttp_eio.Server.respond ~status:`OK ~headers ~body:file ())
-  | _ -> Cohttp_eio.Server.respond ~status:`OK ~headers ~body:file ()
+      | None -> (
+        let headers =
+        Http.Header.of_list
+          [
+            ("Accept-Ranges", "bytes");
+            ("Content-Length", Optint.Int63.to_string stat.size);
+            ("Content-Type", content_type);
+            ("Last-Modified", last_modified);
+          ]
+      in
+      let bytes = Eio.Flow.read_all file in
+        let body = Eio.Flow.string_source bytes in
+        Cohttp_eio.Server.respond ~status:`OK ~headers ~body ())
+      )
+  | _ -> (
+    let headers =
+      Http.Header.of_list
+        [
+          ("Accept-Ranges", "bytes");
+          ("Content-Length", Optint.Int63.to_string stat.size);
+          ("Content-Type", content_type);
+          ("Last-Modified", last_modified);
+        ]
+    in
+    let bytes = Eio.Flow.read_all file in
+    let body = Eio.Flow.string_source bytes in
+    Cohttp_eio.Server.respond ~status:`OK ~headers ~body ()
+  )
 
 let handler routes state _socket req _body =
   let open Cohttp_eio in
@@ -186,7 +223,7 @@ let rec build_static_routes sw dir_path =
           |> List.map (fun (name, handler) ->
               let new_name = "/" ^ item ^ name in
               (new_name, handler))
-      | false -> [ ("/" ^ item, render_static_file sw path) ])
+      | false -> [ ("/" ^ item, render_static_file path) ])
 
 let get_static_files env sw path =
   let arg_path =
@@ -201,7 +238,7 @@ let laserver env sw laz_path static_path =
     else Eio.Path.(env#fs / laz_path)
   in
   let dir = Eio.Path.open_dir ~sw arg_laz_path in
-  let tiles = find_las_files sw dir in
+  let tiles = find_las_files dir in
   Printf.printf "Found %d tiles\n" (List.length tiles);
   let state = build_state tiles in
   Printf.printf "rtree size: %d\n" (R.size state.rtree);
@@ -213,7 +250,7 @@ let laserver env sw laz_path static_path =
   to put the eio path into the Repr rtree requires *)
   let laz_static_routes =
     List.map
-      (fun (name, tile) -> ("/tile/" ^ name, render_static_file sw tile.path))
+      (fun (name, tile) -> ("/tile/" ^ name, render_static_file tile.path))
       state.tile_map
   in
 
