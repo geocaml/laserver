@@ -71,8 +71,7 @@ let rec find_las_files' sw dir_path =
               match info with Ok info -> [ { path; info } ] | Error _ -> [])))
 
 let find_las_files dir_path =
-  Eio.Switch.run @@ fun sw ->
-  find_las_files' sw dir_path
+  Eio.Switch.run @@ fun sw -> find_las_files' sw dir_path
 
 let rtiles_to_json rtiles =
   `List
@@ -101,6 +100,17 @@ let rtiles_to_json rtiles =
        rtiles)
   |> Yojson.Safe.to_string
 
+let bounds_to_json envelope =
+  let x0, x1, y0, y1 = Rtree.Rectangle.coords envelope in
+  `Assoc
+    [
+      ("left", `Float x0);
+      ("right", `Float x1);
+      ("top", `Float y1);
+      ("bottom", `Float y0);
+    ]
+  |> Yojson.Safe.to_string
+
 let get_float_query uri name =
   match Uri.get_query_param uri name with
   | None -> Error "Missing query"
@@ -113,17 +123,26 @@ let get_point_query state req =
   let uri = Uri.of_string (Http.Request.resource req) in
   let* x = get_float_query uri "x" in
   let* y = get_float_query uri "y" in
-  let radius = match get_float_query uri "r" with
-  | Ok r -> r
-  | Error _ -> 2500.
+  let radius =
+    match get_float_query uri "r" with Ok r -> r | Error _ -> 2500.
   in
-  let envelope = Rtree.Rectangle.v ~x0:(x -. radius) ~y0:(y -. radius) ~x1:(x +. radius) ~y1:(y +. radius) in
+  let envelope =
+    Rtree.Rectangle.v ~x0:(x -. radius) ~y0:(y -. radius) ~x1:(x +. radius)
+      ~y1:(y +. radius)
+  in
   let rtiles = R.find state.rtree envelope in
   Ok rtiles
 
-let render_index state _req =
+let render_overview state _req =
+  let bounds = R.bounds state.rtree in
+  match bounds with
+  | None -> Cohttp_eio.Server.respond_string ~status:`No_content ~body:"" ()
+  | Some bounds ->
+      let body = bounds_to_json bounds in
+      Cohttp_eio.Server.respond_string ~status:`OK ~body ()
+
+let render_all state _req =
   let all_tiles = R.values state.rtree in
-  Printf.printf "%d\n%!" (List.length all_tiles);
   let body = rtiles_to_json all_tiles in
   Cohttp_eio.Server.respond_string ~status:`OK ~body ()
 
@@ -158,20 +177,33 @@ let render_static_file path _state req =
                 ("Accept-Ranges", "bytes");
                 ("Content-Length", Int64.to_string len);
                 ( "Content-Range",
-                  Printf.sprintf "bytes %Ld-%Ld/%Ld" start_pos end_pos file_size );
+                  Printf.sprintf "bytes %Ld-%Ld/%Ld" start_pos end_pos file_size
+                );
                 ("Content-Type", content_type);
                 ("Last-Modified", last_modified);
               ]
           in
-
 
           let _ = Eio.File.seek file (Optint.Int63.of_int64 start_pos) `Set in
           let buf = Eio.Buf_read.of_flow file ~max_size:(Int64.to_int len) in
           let bytes = Eio.Buf_read.take (Int64.to_int len) buf in
           let body = Eio.Flow.string_source bytes in
           Cohttp_eio.Server.respond ~status:`Partial_content ~headers ~body ()
-      | None -> (
-        let headers =
+      | None ->
+          let headers =
+            Http.Header.of_list
+              [
+                ("Accept-Ranges", "bytes");
+                ("Content-Length", Optint.Int63.to_string stat.size);
+                ("Content-Type", content_type);
+                ("Last-Modified", last_modified);
+              ]
+          in
+          let bytes = Eio.Flow.read_all file in
+          let body = Eio.Flow.string_source bytes in
+          Cohttp_eio.Server.respond ~status:`OK ~headers ~body ())
+  | _ ->
+      let headers =
         Http.Header.of_list
           [
             ("Accept-Ranges", "bytes");
@@ -181,23 +213,8 @@ let render_static_file path _state req =
           ]
       in
       let bytes = Eio.Flow.read_all file in
-        let body = Eio.Flow.string_source bytes in
-        Cohttp_eio.Server.respond ~status:`OK ~headers ~body ())
-      )
-  | _ -> (
-    let headers =
-      Http.Header.of_list
-        [
-          ("Accept-Ranges", "bytes");
-          ("Content-Length", Optint.Int63.to_string stat.size);
-          ("Content-Type", content_type);
-          ("Last-Modified", last_modified);
-        ]
-    in
-    let bytes = Eio.Flow.read_all file in
-    let body = Eio.Flow.string_source bytes in
-    Cohttp_eio.Server.respond ~status:`OK ~headers ~body ()
-  )
+      let body = Eio.Flow.string_source bytes in
+      Cohttp_eio.Server.respond ~status:`OK ~headers ~body ()
 
 let handler routes state _socket req _body =
   let open Cohttp_eio in
@@ -231,21 +248,32 @@ let get_static_files env sw path =
     else Eio.Path.(env#fs / path)
   in
   let routes = build_static_routes sw arg_path in
-  let index_redirects = List.filter_map (fun (original_path, _) ->
-    match String.split_on_char '/' original_path  with
-    | [] -> None
-    | parts -> (
-      match (List.rev parts) with
-      | "index.html" :: rest -> (
-        let path = match rest with [] | [""] -> "/" | _ -> "/" ^ (String.concat "/" (List.rev rest)) ^ "/" in
-        Some (path, fun _s _r ->
-          let headers = Http.Header.of_list [("location", original_path)] in
-          Cohttp_eio.Server.respond ~status:`Moved_permanently ~headers ~body:(Eio.Flow.string_source "") ()
-        )
-      )
-      | _ -> None
-    )
-  ) routes in
+  let index_redirects =
+    List.filter_map
+      (fun (original_path, _) ->
+        match String.split_on_char '/' original_path with
+        | [] -> None
+        | parts -> (
+            match List.rev parts with
+            | "index.html" :: rest ->
+                let path =
+                  match rest with
+                  | [] | [ "" ] -> "/"
+                  | _ -> "/" ^ String.concat "/" (List.rev rest) ^ "/"
+                in
+                Some
+                  ( path,
+                    fun _s _r ->
+                      let headers =
+                        Http.Header.of_list [ ("Location", original_path) ]
+                      in
+                      Cohttp_eio.Server.respond ~status:`Moved_permanently
+                        ~headers
+                        ~body:(Eio.Flow.string_source "")
+                        () )
+            | _ -> None))
+      routes
+  in
   routes @ index_redirects
 
 let laserver env sw laz_path static_path =
@@ -260,7 +288,13 @@ let laserver env sw laz_path static_path =
   Printf.printf "rtree size: %d\n" (R.size state.rtree);
   Printf.printf "Rtree values: %d\n" (List.length (R.values state.rtree));
 
-  let fixed_routes = [ ("/api/all", render_index); ("/api/find", render_find) ] in
+  let fixed_routes =
+    [
+      ("/api/all", render_all);
+      ("/api/overview", render_overview);
+      ("/api/find", render_find);
+    ]
+  in
 
   (* This uses the tile list rather than the rtree as I don't know how
   to put the eio path into the Repr rtree requires *)

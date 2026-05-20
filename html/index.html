@@ -214,7 +214,7 @@
 </div>
 
 <div id="ui" style="display:none">
-  <strong id="title">LiDAR — Kullberg</strong><br><br>
+  <strong id="title">LiDAR</strong><br><br>
   drag · pan<br>
   right-drag · rotate<br>
   scroll · zoom<br><br>
@@ -1156,8 +1156,6 @@ async function refreshTiles(cx, cy) {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
-const CENTER_X = 600755;
-const CENTER_Y = 7073590;
 
 async function init() {
   const loadingEl = document.getElementById('loading');
@@ -1166,10 +1164,14 @@ async function init() {
 
   loadLandcover();  // fire and forget — button appears when ready
 
-  const tileFiles = await fetch(`/api/find?x=${CENTER_X}&y=${CENTER_Y}&r=${FETCH_RADIUS}`).then(r => r.json());
+  const bounds = await fetch(`/api/overview`).then(r => r.json());
+  const center_x = (bounds.right - bounds.left) + bounds.left;
+  const center_y = (bounds.top - bounds.bottom) + bounds.bottom;
+
+  const tileFiles = await fetch(`/api/find?x=${center_x}&y=${center_y}&r=${FETCH_RADIUS}`).then(r => r.json());
   tileStates = tileFiles.map(makeTile);
   for (const tile of tileStates) loadedTileNames.add(tile.name);
-  fetchCenter = { x: CENTER_X, y: CENTER_Y };
+  fetchCenter = { x: center_x, y: center_y };
 
   tilesGroup = new THREE.Group();
   for (const tile of tileStates) tilesGroup.add(tile.group);
