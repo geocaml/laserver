@@ -98,14 +98,16 @@ let rtiles_to_json rtiles =
        rtiles)
   |> Yojson.Safe.to_string
 
-let bounds_to_json envelope =
+let bounds_to_json envelope (elevation_min, elevation_max) =
   let x0, x1, y0, y1 = Rtree.Rectangle.coords envelope in
   `Assoc
     [
-      ("left", `Float x0);
-      ("right", `Float x1);
-      ("top", `Float y1);
-      ("bottom", `Float y0);
+      ("xmin", `Float x0);
+      ("xmax", `Float x1);
+      ("ymax", `Float y1);
+      ("ymin", `Float y0);
+      ("zmin", `Float elevation_min);
+      ("zmax", `Float elevation_max);
     ]
   |> Yojson.Safe.to_string
 
@@ -133,10 +135,15 @@ let get_point_query state req =
 
 let render_overview state _req =
   let bounds = R.bounds state in
+  let elevation_min, elevation_max = List.fold_left (fun (mi, ma) tile ->
+    let (_, _, z1), (_, _, z2) = RTile.bounds tile in
+    ((if z1 < mi then z1 else mi),
+    (if z2 > ma then z2 else ma))
+  ) (Float.infinity, (Float.infinity *. -1.)) (R.values state) in
   match bounds with
   | None -> Cohttp_eio.Server.respond_string ~status:`No_content ~body:"" ()
   | Some bounds ->
-      let body = bounds_to_json bounds in
+      let body = bounds_to_json bounds (elevation_min, elevation_max) in
       Cohttp_eio.Server.respond_string ~status:`OK ~body ()
 
 let render_all state _req =

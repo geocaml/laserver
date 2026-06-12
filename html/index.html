@@ -1165,8 +1165,12 @@ async function init() {
   loadLandcover();  // fire and forget — button appears when ready
 
   const bounds = await fetch(`/api/overview`).then(r => r.json());
-  const center_x = (bounds.right - bounds.left) + bounds.left;
-  const center_y = (bounds.top - bounds.bottom) + bounds.bottom;
+  const center_x = (bounds.xmax - bounds.xmin) + bounds.xmin;
+  const center_y = (bounds.ymax - bounds.ymin) + bounds.ymin;
+  globalZMin = 0;
+  console.log(bounds);
+  globalZMax = bounds.zmax - bounds.zmin;
+
 
   const tileFiles = await fetch(`/api/find?x=${center_x}&y=${center_y}&r=${FETCH_RADIUS}`).then(r => r.json());
   tileStates = tileFiles.map(makeTile);
@@ -1194,8 +1198,8 @@ async function init() {
   coordOffset.x = (gMinX + gMaxX) / 2;
   coordOffset.y = (gMinY + gMaxY) / 2;
   coordOffset.z = gMinZ;
-  globalZMin = 0;
-  globalZMax = gMaxZ - gMinZ;
+  // globalZMin = 0;
+  // globalZMax = gMaxZ - gMinZ;
   resolveOffset();  // unblocks tree loading
 
   for (const tile of tileStates) {
@@ -1212,8 +1216,8 @@ async function init() {
   sph.r = Math.max(gMaxX - gMinX, gMaxY - gMinY) * 0.9;
   defaults.sph.r = sph.r;
 
-  document.getElementById('z-max').textContent = Math.round(gMaxZ) + ' m';
-  document.getElementById('z-min').textContent = Math.round(gMinZ) + ' m';
+  document.getElementById('z-max').textContent = Math.round(bounds.zmax) + ' m';
+  document.getElementById('z-min').textContent = Math.round(bounds.zmin) + ' m';
 
   const anyRGB = tileStates.some(t => t.hasRGB);
   document.getElementById('btn-rgb').style.display = anyRGB ? '' : 'none';
