@@ -1,0 +1,15 @@
+{
+  "imports": {
+    "three": "npm:three@0.184.0",
+    "three/addons/": "npm:three@0.184.0/jsm/",
+    "copc": "npm:copc",
+    "las": "npm:laz-perf"
+  },
+  "tasks": {
+    "check": "deno check src/main.ts",
+    "bundle": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run build.ts"
+  },
+  "compilerOptions": {
+    "lib": ["dom", "esnext"]
+  }
+}
