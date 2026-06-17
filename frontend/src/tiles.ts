@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { Copc, View } from "copc";
 import { createLazPerf, LazPerf } from "las";
 import {
-  addGroup,
+  addLayer,
   computeNodeTargetDepth,
   getFrustum,
   render,
@@ -27,6 +27,7 @@ const tilesGroup = new THREE.Group();
 let fetchCenter: {x: number, y: number} | null  = null;
 const loadedTileNames = new Set();
 
+
 const FETCH_RADIUS = 5000; // m — radius passed to /api/find (covers 5×5 tile grid)
 const REFETCH_THRESHOLD = 1200; // m — re-query when target drifts this far from last fetch
 const EVICT_DISTANCE = 7500; // m — drop tiles whose centre exceeds this
@@ -47,13 +48,6 @@ function makeTile(tileinfo: APITileInfo): Tile {
     seenClasses: new Set(),
     evicted: false,
   };
-}
-
-function addLayer(key: string, group: THREE.Group) {
-  layers[key] = group;
-  const cb = document.querySelector(`input[data-layer="${key}"]`);
-  if (cb) group.visible = cb.checked;
-  addGroup(group);
 }
 
 export async function lasinit() {

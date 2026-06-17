@@ -11,6 +11,8 @@ renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
+export const layers: Record<string,THREE.Group> = {};
+
 // --- Camera control state ---------------------------------------------------
 
 let defaults = {
@@ -36,7 +38,14 @@ export function resizeEvent(tileStates: Tile[]) {
 
 // --- Code -------------------------------------------------------------------
 
-export function addGroup(grp: THREE.Group) {
+export function addLayer(key: string, group: THREE.Group) {
+  layers[key] = group;
+  const cb = document.querySelector(`input[data-layer="${key}"]`);
+  if (cb) group.visible = cb.checked;
+  addGroup(group);
+}
+
+function addGroup(grp: THREE.Group) {
     scene.add(grp);
 }
 
