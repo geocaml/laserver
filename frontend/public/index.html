@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>LiDAR Point Cloud</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="bundle.js"></script>
+</head>
+<body>
+<div id="loading">Initialising…</div>
+
+<div id="about-overlay">
+    <div id="about-box">
+    <button id="about-close">✕</button>
+    <h2>About this viewer</h2>
+
+    <p>
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum, augue sed posuere facilisis, erat metus facilisis mauris, sit amet faucibus neque eros et sem. Vestibulum condimentum libero augue, quis condimentum nulla euismod a. Pellentesque non bibendum augue. Phasellus tincidunt est ligula, ut laoreet leo scelerisque eget. Duis tellus ligula, mollis eu leo id, blandit elementum justo. Nunc consequat dui non tortor lobortis, non malesuada erat lobortis. Aenean vulputate vitae leo sed dignissim. Quisque in volutpat est, ut cursus mi. Aenean lectus risus, pulvinar vitae luctus ac, tempus vitae nisi. Aliquam vitae ipsum semper, vulputate eros in, placerat mauris. Phasellus auctor, purus eu convallis malesuada, massa dui efficitur mi, tempus varius purus mi et lacus.
+
+    Nam sagittis risus sed suscipit dictum. Nam in lorem id diam vestibulum sollicitudin. Vestibulum ut tristique lacus, ac lacinia risus. Integer interdum, tortor ac auctor finibus, erat est molestie sapien, ut venenatis libero lorem ut tortor. Phasellus interdum accumsan tempor. Fusce et enim id nulla efficitur porttitor. Nullam in nisi pharetra, cursus velit vitae, mollis sem. Integer facilisis quam justo, in accumsan purus scelerisque sed. Aliquam erat volutpat. Nunc tempus feugiat dapibus. Nullam accumsan elit velit, eget condimentum nunc posuere vel. Curabitur vitae massa ut tellus feugiat dictum. Sed pulvinar, lorem a imperdiet suscipit, felis nisi sollicitudin neque, vel varius justo dolor vitae eros. Cras non dignissim mi. Pellentesque eget finibus lorem, non malesuada elit.
+    </p>
+    </div>
+</div>
+
+<div id="ui" style="display:none">
+    <strong id="title">LiDAR</strong><br><br>
+    drag · pan<br>
+    right-drag · rotate<br>
+    scroll · zoom<br><br>
+
+    <div id="navcontrols">
+        <svg class="icon" id="about-btn" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info-icon lucide-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+
+        <svg class="icon" id="home-btn" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-house-icon lucide-house"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+
+        <svg class="icon" id="share-btn" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-share-icon lucide-share"><path d="M12 2v13"/><path d="m16 6-4-4-4 4"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/></svg>
+
+        <svg class="icon hidden-btn" id="shared-btn" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check-icon lucide-check"><path d="M20 6 9 17l-5-5"/></svg>
+    </div>
+</div>
+
+<div id="layers">
+    <div id="color-modes">
+        <button class="cm-btn active" data-mode="height">height</button>
+        <button class="cm-btn" data-mode="classification">class</button>
+        <button class="cm-btn" id="btn-rgb" data-mode="rgb" style="display:none">rgb</button>
+        <button class="cm-btn" id="btn-lc" data-mode="landcover" style="display:none">land cover</button>
+    </div>
+    <label class="layer-toggle">
+        <input type="checkbox" checked data-layer="pointCloud">
+        <span class="swatch" style="background:#5ad"></span>
+        Points — <span id="pt-count">—</span>
+    </label>
+    <label class="layer-toggle">
+        <input class="tracked-checkbox" id="p2r-check" type="checkbox" data-layer="p2r">
+        <span class="swatch" style="background:#f44"></span>
+        Trees (p2r) — <span id="p2r-count"></span>
+    </label>
+    <label class="layer-toggle">
+        <input class="tracked-checkbox" id="pitfree-check" type="checkbox" data-layer="pitfree">
+        <span class="swatch" style="background:#4f4"></span>
+        Trees (pit-free) — <span id="pitfree-count"></span>
+    </label>
+    <label class="layer-toggle">
+        <input class="tracked-checkbox" id="cameras-check" type="checkbox" data-layer="cameras">
+        <span class="swatch" style="background:#ff4"></span>
+        DSÄ kameror — <span id="cameras-count"></span>
+    </label>
+</div>
+
+<div id="legend" style="display:none">
+    <div id="height-legend">
+        <div class="legend-row"><span id="z-max"></span></div>
+        <div class="legend-row"><div id="gradient"></div></div>
+        <div class="legend-row"><span id="z-min"></span></div>
+    </div>
+    <div id="cls-legend" style="display:none"></div>
+    <div id="lc-legend"  style="display:none"></div>
+</div>
+</body>
+</html>

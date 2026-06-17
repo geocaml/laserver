@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "three": "npm:three@0.184.0",
+    "three/addons/": "npm:three@0.184.0/jsm/",
+    "copc": "npm:copc",
+    "las": "npm:laz-perf"
+  },
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read serve.ts",
+    "bundle": "deno bundle src/main.ts | deno run --allow-read --allow-write --allow-env --allow-run npm:esbuild --bundle --minify --tree-shaking=true --platform=browser --format=esm --external:node:* --outfile=dist/bundle.js",
+    "zundle": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run build.ts"
+  }
+}
