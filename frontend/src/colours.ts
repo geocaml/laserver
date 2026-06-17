@@ -1,12 +1,13 @@
+import {Tile, Node} from "./types.ts";
 
 export let colourMode = 'height';
 let globalZMin = 0, globalZMax = 1;
 
-export function setColourMode(mode) {
+export function setColourMode(mode: string) {
     colourMode = mode;
 }
 
-export function setHeightLimits(zmin, zmax) {
+export function setHeightLimits(zmin: number, zmax: number) {
     globalZMin = 0;
     globalZMax = zmax - zmin;
 }
@@ -18,7 +19,7 @@ const MAKO = [
     [247/255, 247/255, 158/255],
 ];
 
-function heightColor(t, out, i) {
+function heightColor(t: number, out:Float32Array, i: number) {
     t = Math.max(0, Math.min(1, t));
     const s = t * (MAKO.length - 1);
     const lo = Math.min(Math.floor(s), MAKO.length - 2);
@@ -57,7 +58,7 @@ const CLS_LABELS = [
     'Wire connector','Bridge deck','High noise',
 ];
 
-function classColor(cls, out, i) {
+function classColor(cls: number, out: Float32Array, i: number) {
     const c = Math.min(cls, 18) * 3;
     out[i]   = CLS_RGB[c];
     out[i+1] = CLS_RGB[c + 1];
@@ -66,40 +67,46 @@ function classColor(cls, out, i) {
 
 // posArr[ci+2] is already Z - coordOffset.z = Z - gMinZ, so dividing by span
 // gives the normalised height directly — no separate zArr needed.
-export function applyNodeColors(node, from, to) {
+export function applyNodeColors(node: Node, from: number, to: number) {
     const span = globalZMax - globalZMin || 1;
     for (let i = from; i < to; i++) {
         const ci = i * 3;
         if (colourMode === 'height') {
+            if ((node.posArr === null) || (node.colArr === null)) return;
             heightColor(node.posArr[ci + 2] / span, node.colArr, ci);
         } else if (colourMode === 'classification') {
+            if ((node.clsArr === null) || (node.colArr === null)) return;
             classColor(node.clsArr[i], node.colArr, ci);
         } else if (colourMode === 'rgb' && node.tile.hasRGB) {
+            if ((node.colArr === null) || (node.rgbArr === null)) return;
             node.colArr[ci]   = node.rgbArr[ci]   / 255;
             node.colArr[ci+1] = node.rgbArr[ci+1] / 255;
             node.colArr[ci+2] = node.rgbArr[ci+2] / 255;
-        } else if (colourMode === 'landcover' && lcPixels) {
-            // Convert from world-space back to absolute SWEREF99TM, then to raster pixel
-            const absX = node.posArr[ci]   + coordOffset.x;
-            const absY = node.posArr[ci+1] + coordOffset.y;
-            const px = Math.floor((absX - lcMeta.xMin) / lcMeta.pixelSize);
-            const py = Math.floor((lcMeta.yMax - absY) / lcMeta.pixelSize);
-            if (px >= 0 && px < lcMeta.width && py >= 0 && py < lcMeta.height) {
-                const pidx = (py * lcMeta.width + px) * 4;
-                node.colArr[ci]   = lcPixels[pidx]   / 255;
-                node.colArr[ci+1] = lcPixels[pidx+1] / 255;
-                node.colArr[ci+2] = lcPixels[pidx+2] / 255;
-            } else {
-                node.colArr[ci] = node.colArr[ci+1] = node.colArr[ci+2] = 0.3;
-            }
+        // } else if (colourMode === 'landcover' && lcPixels) {
+        //     if ((node.posArr === null) || (node.colArr === null)) return;
+        //     // Convert from world-space back to absolute SWEREF99TM, then to raster pixel
+        //     const absX = node.posArr[ci]   + coordOffset.x;
+        //     const absY = node.posArr[ci+1] + coordOffset.y;
+        //     const px = Math.floor((absX - lcMeta.xMin) / lcMeta.pixelSize);
+        //     const py = Math.floor((lcMeta.yMax - absY) / lcMeta.pixelSize);
+        //     if (px >= 0 && px < lcMeta.width && py >= 0 && py < lcMeta.height) {
+        //         const pidx = (py * lcMeta.width + px) * 4;
+        //         node.colArr[ci]   = lcPixels[pidx]   / 255;
+        //         node.colArr[ci+1] = lcPixels[pidx+1] / 255;
+        //         node.colArr[ci+2] = lcPixels[pidx+2] / 255;
+            // } else {
+            //     if (node.colArr === null) return;
+            //     node.colArr[ci] = node.colArr[ci+1] = node.colArr[ci+2] = 0.3;
+            // }
         } else {
+            if ((node.posArr === null) || (node.colArr === null)) return;
             heightColor(node.posArr[ci + 2] / span, node.colArr, ci);
         }
     }
 }
 
-export function recolorAll(tileStates) {
-    for (const tile of tileStates) {
+export function recolorAll(tileState: Tile[]) {
+    for (const tile of tileState) {
         for (const node of tile.allNodes) {
             if (!node.loaded || !node.geo) continue;
             applyNodeColors(node, 0, node.pointCount);
@@ -111,9 +118,9 @@ export function recolorAll(tileStates) {
 // ── Classification legend (built once all depth-0 nodes are loaded) ───────────
 
 let legendBuilt = false;
-export function maybeUpdateClsLegend(tileStates) {
+export function maybeUpdateClsLegend(tileState: Tile[]) {
     if (legendBuilt) return;
-    for (const tile of tileStates) {
+    for (const tile of tileState) {
         if (tile.failed) continue;
         const d0 = tile.allNodes.filter(n => n.depth === 0);
         if (d0.length === 0) return;  // hierarchy not loaded yet
@@ -121,8 +128,8 @@ export function maybeUpdateClsLegend(tileStates) {
     }
 
     legendBuilt = true;
-    const seen = new Set();
-    for (const tile of tileStates) for (const cls of tile.seenClasses) seen.add(cls);
+    const seen: Set<number> = new Set();
+    for (const tile of tileState) for (const cls of tile.seenClasses) seen.add(cls);
 
     const clsLegend = document.getElementById('cls-legend');
     for (const cls of [...seen].sort((a, b) => a - b)) {

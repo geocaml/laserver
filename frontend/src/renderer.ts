@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {Tile} from './types.ts'
 
 // --- Scene state ------------------------------------------------------------
 
@@ -26,20 +27,27 @@ export function cameraReset() {
     history.replaceState(null, '', window.location.pathname);
 }
 
-export function resizeEvent(tileState) {
-    camera.aspect = innerWidth / innerHeight;
+export function resizeEvent(tileStates: Tile[]) {
+    camera.aspect = globalThis.innerWidth / globalThis.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-    render(tileState);
+    renderer.setSize(globalThis.innerWidth, globalThis.innerHeight);
+    render(tileStates);
 }
 
 // --- Code -------------------------------------------------------------------
 
-export function addGroup(grp) {
+export function addGroup(grp: THREE.Group) {
     scene.add(grp);
 }
 
-export function cameraSet(gMinX, gMinY, gMinZ, gMaxX, gMaxY, gMaxZ) {
+export function cameraSet(
+    gMinX: number,
+    gMinY: number,
+    gMinZ: number,
+    gMaxX: number,
+    gMaxY: number,
+    gMaxZ: number,
+){
     target.set(0, 0, (gMaxZ - gMinZ) * 0.35);
     defaults.target.set(0, 0, (gMaxZ - gMinZ) * 0.35);
     sph.r = Math.max(gMaxX - gMinX, gMaxY - gMinY) * 0.9;
