@@ -60,7 +60,10 @@ let rec find_las_files' sw dir_path =
       match Eio.Path.is_directory path with
       | true -> find_las_files' sw path
       | false -> (
-          match String.ends_with ~suffix:".laz" item || String.ends_with ~suffix:".las" item with
+          match
+            String.ends_with ~suffix:".laz" item
+            || String.ends_with ~suffix:".las" item
+          with
           | false -> []
           | true -> (
               let flow = Eio.Path.open_in ~sw path in
@@ -135,11 +138,14 @@ let get_point_query state req =
 
 let render_overview state _req =
   let bounds = R.bounds state in
-  let elevation_min, elevation_max = List.fold_left (fun (mi, ma) tile ->
-    let (_, _, z1), (_, _, z2) = RTile.bounds tile in
-    ((if z1 < mi then z1 else mi),
-    (if z2 > ma then z2 else ma))
-  ) (Float.infinity, (Float.infinity *. -1.)) (R.values state) in
+  let elevation_min, elevation_max =
+    List.fold_left
+      (fun (mi, ma) tile ->
+        let (_, _, z1), (_, _, z2) = RTile.bounds tile in
+        ((if z1 < mi then z1 else mi), if z2 > ma then z2 else ma))
+      (Float.infinity, Float.infinity *. -1.)
+      (R.values state)
+  in
   match bounds with
   | None -> Cohttp_eio.Server.respond_string ~status:`No_content ~body:"" ()
   | Some bounds ->
@@ -223,15 +229,27 @@ let render_static_file path _state req =
 
 let handler routes state _socket req _body =
   let open Cohttp_eio in
-  let uri = Uri.of_string (Http.Request.resource req) in
+  let request_path = Http.Request.resource req in
+  let uri = Uri.of_string request_path in
   let path = Uri.path uri in
-
-  match Http.Request.meth req with
-  | `GET -> (
-      match List.assoc_opt path routes with
-      | Some handler -> handler state req
-      | None -> Server.respond_string ~status:`Not_found ~body:"Not found\n" ())
-  | _ -> Server.respond_string ~status:`Not_found ~body:"Not found\n" ()
+  let meth = Http.Request.meth req in
+  let status, response =
+    match meth with
+    | `GET -> (
+        match List.assoc_opt path routes with
+        | Some handler -> (`OK, handler state req)
+        | None ->
+            ( `Not_found,
+              Server.respond_string ~status:`Not_found ~body:"Not found\n" () ))
+    | _ ->
+        ( `Not_found,
+          Server.respond_string ~status:`Not_found ~body:"Not found\n" () )
+  in
+  Printf.printf "%s %s %s\n%!"
+    (Http.Method.to_string meth)
+    request_path
+    (Http.Status.to_string status);
+  response
 
 let log_error ex = Printf.eprintf "Server error: %s\n%!" (Printexc.to_string ex)
 
