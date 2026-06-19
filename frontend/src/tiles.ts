@@ -10,6 +10,7 @@ import {
 } from "./renderer.ts";
 import { applyNodeColors, maybeUpdateClsLegend } from "./colours.ts";
 import {Tile, Node, APITileInfo, Offset} from "./types.ts";
+import { debugMode } from "./state.ts";
 
 let lazPerf: LazPerf | null = null;
 
@@ -39,6 +40,7 @@ function makeTile(tileinfo: APITileInfo): Tile {
         maxAvailDepth: 0,
         hasRGB: false,
         box: null, // THREE.Box3 in world-space coords
+        debugFrame: null,
         nodeMap: {}, // keyStr → nodeState
         allNodes: [], // flat array for fast iteration
         group: new THREE.Group(),
@@ -59,6 +61,18 @@ export function setOffset(center_x: number, center_y: number, min_z: number) {
     coordOffset.x = center_x;
     coordOffset.y = center_y;
     coordOffset.z = min_z;
+
+    debugMode.subscribe(debug => {
+       for (const tile of tileState) {
+           tile.debugFrame.visible = debug;
+           for (const node of tile.allNodes) {
+               if (node.debugFrame) {
+                   node.debugFrame.visible = debug;
+               }
+           }
+       }
+       render(tileState);
+    });
 }
 
 // ── Status bar ────────────────────────────────────────────────────────────────
@@ -136,6 +150,9 @@ const loadQ: {
 
 function makeNodeState(tile: Tile, keyStr: string, entry: Hierarchy.Node): Node {
     const [d, nx, ny, nz] = keyStr.split("-").map(Number);
+    const box = computeNodeBox(tile, d, nx, ny, nz);
+    const debugFrame = new THREE.Box3Helper(box, 0x00FF00);
+    debugFrame.visible = debugMode.get();
     return {
         tile,
         keyStr,
@@ -144,7 +161,8 @@ function makeNodeState(tile: Tile, keyStr: string, entry: Hierarchy.Node): Node 
         ny,
         nz,
         entry,
-        box: computeNodeBox(tile, d, nx, ny, nz),
+        box,
+        debugFrame,
         loaded: false,
         loading: false,
         failed: false,
@@ -177,14 +195,16 @@ export async function loadHierarchy(tile: Tile) {
         async function loadPage(info: Hierarchy.Page) {
             const { nodes, pages } = await Copc.loadHierarchyPage(tile.url, info);
             Object.assign(all, nodes);
-            for (const sub of Object.values(pages)) { if (sub) await loadPage(sub)};
+            for (const sub of Object.values(pages ?? {})) { if (sub) await loadPage(sub)};
         }
         await loadPage(tile.copc.info.rootHierarchyPage);
 
         let maxD = 0;
         for (const [keyStr, entry] of Object.entries(all)) {
             if (!entry) continue;
-            if (entry.pointCount) continue;
+            if (!(entry.pointCount)) continue;
+            if (entry.pointCount === 0xFFFFFFFF) continue;  // untwine sentinel
+
             const d = parseInt(keyStr.split("-")[0]);
             maxD = Math.max(maxD, d);
             const node = makeNodeState(tile, keyStr, entry);
@@ -211,9 +231,9 @@ function fillNodeBuffer(node: Node, view: View) {
     const getY = view.getter("Y");
     const getZ = view.getter("Z");
     const getCls = view.getter("Classification");
-    const getR = view.getter("Red");
-    const getG = view.getter("Green");
-    const getB = view.getter("Blue");
+    const getR = tile.hasRGB ? view.getter("Red") : undefined;
+    const getG = tile.hasRGB ? view.getter("Green") : undefined;
+    const getB = tile.hasRGB ? view.getter("Blue") : undefined;
 
     for (let j = 0; j < n; j++) {
         const j3 = j * 3;
@@ -223,10 +243,10 @@ function fillNodeBuffer(node: Node, view: View) {
         const cls = getCls(j);
         node.clsArr[j] = cls;
         tile.seenClasses.add(cls);
-        if (tile.hasRGB && node.rgbArr !== null) {
-            node.rgbArr[j3] = getR(j) >> 8;
-            node.rgbArr[j3 + 1] = getG(j) >> 8;
-            node.rgbArr[j3 + 2] = getB(j) >> 8;
+        if (tile.hasRGB && (node.rgbArr !== null)) {
+            node.rgbArr[j3] = getR!(j) >> 8;
+            node.rgbArr[j3 + 1] = getG!(j) >> 8;
+            node.rgbArr[j3 + 2] = getB!(j) >> 8;
         }
     }
 
@@ -248,7 +268,7 @@ function fillNodeBuffer(node: Node, view: View) {
     node.geo = geo;
     node.mesh = mesh;
     node.loaded = true;
-    tile.group.add(new THREE.Box3Helper(node.box, 0x00ff00));
+    tile.group.add(node.debugFrame);
     tile.group.add(mesh);
 }
 
@@ -310,6 +330,7 @@ function updateLOD() {
         if (tile.failed) continue;
 
         const tileVisible = tile.box && frustum.intersectsBox(tile.box);
+        tile.debugFrame.material.color.set(tileVisible ? 0xffff00 : 0xFF0000);
 
         if (!tileVisible) {
             tile.outOfViewSince ??= now;
@@ -403,7 +424,9 @@ export async function refreshTiles(cx: number, cy: number) {
                         max[2] - coordOffset.z,
                     ),
                 );
-                tile.group.add(new THREE.Box3Helper(tile.box, 0xff0000));
+                tile.debugFrame = new THREE.Box3Helper(tile.box, 0xff0000);
+                tile.debugFrame.visible = debugMode.get();
+                tile.group.add(tile.debugFrame);
             }
 
             await Promise.allSettled(newStates.map(loadHierarchy));
@@ -417,13 +440,11 @@ export async function refreshTiles(cx: number, cy: number) {
             const tcy = (min[1] + max[1]) / 2;
             return Math.hypot(tcx - cx, tcy - cy) > EVICT_DISTANCE;
         });
-
         for (const tile of evict) {
             tile.evicted = true;
             for (const node of tile.allNodes) unloadNode(node);
             tilesGroup.remove(tile.group);
             tile.group.clear();
-            tile.group.add(new THREE.Box3Helper(tile.box, 0xff0000));
             loadedTileNames.delete(tile.name);
         }
         if (evict.length > 0) {

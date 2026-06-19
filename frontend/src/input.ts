@@ -11,9 +11,12 @@ import {
 } from "./renderer.ts";
 import { scheduleLODUpdate, scheduleRefetch, tileState } from "./tiles.ts";
 import { colourMode, recolorAll, setColourMode } from "./colours.ts";
+import { debugMode } from "./state.ts";
 
 let drag = false, rightDrag = false, prev = { x: 0, y: 0 };
 let prevPinchDist: number | null = null;
+
+let debugEnabled = false;
 
 function pinchDist(touches: TouchList) {
     return Math.hypot(
@@ -48,6 +51,11 @@ function applyDrag(dx: number, dy: number) {
         scheduleRefetch();
     }
     scheduleLODUpdate();
+}
+
+function toggleDebug() {
+    const current = debugMode.get();
+    debugMode.set(!current);
 }
 
 export function initEventHandlers() {
@@ -121,6 +129,15 @@ export function initEventHandlers() {
             render(tileState);
             saveCameraToURL();
         });
+    });
+
+    // keyboard inputs
+    document.addEventListener('keydown', (event) => {
+      switch (event.key) {
+        case 'd':
+          toggleDebug();
+          break;
+      }
     });
 
     // main UI

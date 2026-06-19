@@ -19,7 +19,7 @@ await esbuild.build({
   bundle: true,
   platform: "browser",
   format: "esm",
-  minify: true,
+  minify: false,
   treeShaking: true,
 });
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {Tile, Node, APIOverview} from './types.ts'
+import { debugMode } from "./state.ts";
 
 // --- Scene state ------------------------------------------------------------
 
@@ -15,8 +16,11 @@ export const layers: Record<string,THREE.Group> = {};
 
 const geometry = new THREE.SphereGeometry(100, 16, 16);
 const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-const targetViewSphere = new THREE.Mesh(geometry, material);
-scene.add(targetViewSphere);
+const debugTargetViewSphere = new THREE.Mesh(geometry, material);
+debugTargetViewSphere.visible = debugMode.get();
+scene.add(debugTargetViewSphere);
+
+let debugGlobalBounds: THREE.Box3Helper | null = null;
 
 // --- Camera control state ---------------------------------------------------
 
@@ -32,7 +36,7 @@ export function cameraReset() {
     sph    = { ...defaults.sph };
     target = new THREE.Vector3(defaults.target.x, defaults.target.y, defaults.target.z);
     history.replaceState(null, '', globalThis.location.pathname);
-    targetViewSphere.position.copy(target);
+    debugTargetViewSphere.position.copy(target);
 }
 
 export function resizeEvent(tileStates: Tile[]) {
@@ -41,6 +45,7 @@ export function resizeEvent(tileStates: Tile[]) {
     renderer.setSize(globalThis.innerWidth, globalThis.innerHeight);
     render(tileStates);
 }
+
 
 // --- Code -------------------------------------------------------------------
 
@@ -75,8 +80,19 @@ export function cameraInit(bounds: APIOverview) {
             bounds.zmax,
         )
     );
-    const viewBox = new THREE.Box3Helper(boundingBox, 0x00000FF);
-    scene.add(viewBox);
+    if (debugGlobalBounds) {
+        scene.remove(debugGlobalBounds);
+    }
+    debugGlobalBounds = new THREE.Box3Helper(boundingBox, 0x00000FF);
+    debugGlobalBounds.visible = debugMode.get();
+    scene.add(debugGlobalBounds);
+
+    debugMode.subscribe(debug => {
+        debugGlobalBounds.visible = debug;
+        debugTargetViewSphere.visible = debug;
+        debugTargetViewSphere.position.copy(target);
+        renderer.render(scene, camera);
+    });
 }
 
 function cameraSet(
@@ -92,7 +108,7 @@ function cameraSet(
     sph.r = Math.max(gMaxX - gMinX, gMaxY - gMinY) * 0.9;
     defaults.sph.r = sph.r;
 
-    targetViewSphere.position.copy(target);
+    debugTargetViewSphere.position.copy(target);
 
     camera.position.set(
         target.x + sph.r * Math.sin(sph.phi) * Math.sin(sph.theta),
@@ -121,7 +137,7 @@ export function updateCamera(dx: number, dy: number, pan: boolean) {
         );
         target.addScaledVector(right, -dx * sph.r * 0.001);
         target.addScaledVector(forward, dy * sph.r * 0.001);
-        targetViewSphere.position.copy(target);
+        debugTargetViewSphere.position.copy(target);
     }
 }
 
@@ -184,7 +200,8 @@ export function computeNodeTargetDepth(node: Node) {
 
     // Spatial falloff: normalised by orbit radius so the high-detail zone
     // shrinks as you zoom in, giving finer spatial precision up close.
-    const distScale = 800; //Math.max(sph.r, tileSize * 0.2);  // floor at 20% of tile width
+    // const distScale = 800; //
+    const distScale = Math.max(sph.r, tileSize * 0.2);  // floor at 20% of tile width
     const distNorm  = dist2d / distScale;
     const distDepth = distNorm < 1.0 ? zoomDepth
                 : distNorm < 2.0 ? Math.min(zoomDepth, 2)

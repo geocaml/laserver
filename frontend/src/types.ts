@@ -10,6 +10,7 @@ export interface Node {
     nz: number;
     entry: Hierarchy.Node;
     box: THREE.Box3;
+    debugFrame: THREE.Box3Helper;
     loaded: boolean;
     loading: boolean;
     failed: boolean;
@@ -30,6 +31,7 @@ export interface Tile {
     maxAvailDepth: number;
     hasRGB: boolean;
     box: THREE.Box3 | null;
+    debugFrame: THREE.Box3Helper | null;
     nodeMap: Record<string, Node>;
     allNodes: Node[];
     group: THREE.Group;
