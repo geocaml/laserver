@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
     cameraReset,
+    updateCamera,
     render,
     renderer,
     resizeEvent,
@@ -14,14 +15,14 @@ import { colourMode, recolorAll, setColourMode } from "./colours.ts";
 let drag = false, rightDrag = false, prev = { x: 0, y: 0 };
 let prevPinchDist: number | null = null;
 
-function pinchDist(touches) {
+function pinchDist(touches: TouchList) {
     return Math.hypot(
         touches[0].clientX - touches[1].clientX,
         touches[0].clientY - touches[1].clientY,
     );
 }
 
-let zoomTimer: ReturnType<typeof setTimeout> | null = null;
+let zoomTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 function scheduleURLUpdate() {
     clearTimeout(zoomTimer);
     zoomTimer = setTimeout(saveCameraToURL, 1000);
@@ -31,7 +32,7 @@ function saveCameraToURL() {
     const s = sph;
     const t = target;
     const toggles = ["p2r-check", "pitfree-check", "cameras-check"].map((lbl) =>
-        document.getElementById(lbl).checked ? "1" : "0"
+        (document.getElementById(lbl)! as HTMLInputElement).checked ? "1" : "0"
     );
     const hash = `s=${fmt(s.theta)},${fmt(s.phi)},${fmt(s.r)}&t=${fmt(t.x)},${
         fmt(t.y)
@@ -42,37 +43,21 @@ function saveCameraToURL() {
 const fmt = (v: number) => Math.round(v * 100) / 100;
 
 function applyDrag(dx: number, dy: number) {
-    if (rightDrag) {
-        sph.theta -= dx * 0.005;
-        sph.phi = Math.max(0.05, Math.min(Math.PI * 0.95, sph.phi - dy * 0.005));
-    } else {
-        // Both vectors are in the XY (ground) plane so panning never drifts target.z
-        const right = new THREE.Vector3(
-            Math.cos(sph.theta),
-            Math.sin(sph.theta),
-            0,
-        );
-        const forward = new THREE.Vector3(
-            -Math.sin(sph.theta),
-            Math.cos(sph.theta),
-            0,
-        );
-        target.addScaledVector(right, -dx * sph.r * 0.001);
-        target.addScaledVector(forward, dy * sph.r * 0.001);
+    updateCamera(dx, dy, !rightDrag);
+    if (!rightDrag) {
         scheduleRefetch();
     }
-
     scheduleLODUpdate();
 }
 
 export function initEventHandlers() {
     // about overlay
-    const aboutOverlay = document.getElementById("about-overlay");
-    document.getElementById("about-btn").addEventListener(
+    const aboutOverlay = document.getElementById("about-overlay")!;
+    document.getElementById("about-btn")!.addEventListener(
         "click",
         () => aboutOverlay.classList.add("open"),
     );
-    document.getElementById("about-close").addEventListener(
+    document.getElementById("about-close")!.addEventListener(
         "click",
         () => aboutOverlay.classList.remove("open"),
     );
@@ -82,15 +67,19 @@ export function initEventHandlers() {
 
     // layer visibility
     document.querySelectorAll('#layers input[type=checkbox]').forEach(checkbox => {
-        checkbox.addEventListener('change', () => {
-            const g = layers[checkbox.dataset.layer];
-            if (g) { g.visible = checkbox.checked; render(); }
+        const typedCheckbox = checkbox as HTMLInputElement;
+        typedCheckbox.addEventListener('change', () => {
+            const g = layers[typedCheckbox.dataset.layer!];
+            if (g) {
+                g.visible = typedCheckbox.checked;
+                render(tileState);
+            }
         });
     });
 
 
     // home button
-    document.getElementById("home-btn").addEventListener("click", () => {
+    document.getElementById("home-btn")!.addEventListener("click", () => {
         cameraReset();
         scheduleRefetch();
         scheduleLODUpdate();
@@ -99,13 +88,13 @@ export function initEventHandlers() {
     });
 
     // share button
-    document.getElementById("share-btn").addEventListener("click", async () => {
-        await navigator.clipboard.writeText(window.location.href);
-        document.getElementById("share-btn").classList.add("hidden-btn");
-        document.getElementById("shared-btn").classList.remove("hidden-btn");
+    document.getElementById("share-btn")!.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(globalThis.location.href);
+        document.getElementById("share-btn")!.classList.add("hidden-btn");
+        document.getElementById("shared-btn")!.classList.remove("hidden-btn");
         setTimeout(() => {
-            document.getElementById("shared-btn").classList.add("hidden-btn");
-            document.getElementById("share-btn").classList.remove("hidden-btn");
+            document.getElementById("shared-btn")!.classList.add("hidden-btn");
+            document.getElementById("share-btn")!.classList.remove("hidden-btn");
         }, 1500);
     });
 
@@ -115,18 +104,18 @@ export function initEventHandlers() {
     });
 
     // colour selection
-    document.querySelectorAll(".cm-btn").forEach((btn) => {
+    document.querySelectorAll(".cm-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-            setColourMode(btn.dataset.mode);
-            document.querySelectorAll(".cm-btn").forEach((b) =>
+            setColourMode((btn as HTMLElement).dataset.mode!);
+            document.querySelectorAll(".cm-btn")!.forEach((b) =>
                 b.classList.remove("active")
             );
             btn.classList.add("active");
-            document.getElementById("height-legend").style.display =
+            document.getElementById("height-legend")!.style.display =
                 colourMode === "height" ? "" : "none";
-            document.getElementById("cls-legend").style.display =
+            document.getElementById("cls-legend")!.style.display =
                 colourMode === "classification" ? "" : "none";
-            document.getElementById("lc-legend").style.display =
+            document.getElementById("lc-legend")!.style.display =
                 colourMode === "landcover" ? "" : "none";
             recolorAll(tileState);
             render(tileState);
@@ -140,13 +129,13 @@ export function initEventHandlers() {
         (e: THREE.Event) => e.preventDefault(),
     );
 
-    renderer.domElement.addEventListener("mousedown", (e: THREE.Event) => {
+    renderer.domElement.addEventListener("mousedown", (e: MouseEvent) => {
         drag = true;
         rightDrag = e.button === 2;
         prev = { x: e.clientX, y: e.clientY };
     });
 
-    renderer.domElement.addEventListener("touchstart", (e: THREE.Event) => {
+    renderer.domElement.addEventListener("touchstart", (e: TouchEvent) => {
         if (e.touches.length === 2) {
             rightDrag = true;
             rightDrag = false;
@@ -170,14 +159,14 @@ export function initEventHandlers() {
         })
     );
 
-    window.addEventListener("mousemove", (e: MouseEvent) => {
+    globalThis.addEventListener("mousemove", (e: MouseEvent) => {
         if (!drag) return;
         applyDrag(e.clientX - prev.x, e.clientY - prev.y);
         prev = { x: e.clientX, y: e.clientY };
         render(tileState);
     });
 
-    window.addEventListener("touchmove", (e: TouchEvent) => {
+    globalThis.addEventListener("touchmove", (e: TouchEvent) => {
         if (!drag) return;
         e.preventDefault();
         if (e.touches.length != 2) {
@@ -198,14 +187,14 @@ export function initEventHandlers() {
         render(tileState);
     }, { passive: false });
 
-    renderer.domElement.addEventListener("wheel", (e) => {
+    renderer.domElement.addEventListener("wheel", (e: WheelEvent) => {
         sph.r = Math.max(5, Math.min(50000, sph.r * (1 + e.deltaY * 0.001)));
         scheduleLODUpdate();
         scheduleURLUpdate();
         render(tileState);
     }, { passive: true });
 
-    window.addEventListener("resize", () => {
+    globalThis.addEventListener("resize", () => {
         resizeEvent(tileState);
     });
 }

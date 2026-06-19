@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {Tile} from './types.ts'
+import {Tile, Node, APIOverview} from './types.ts'
 
 // --- Scene state ------------------------------------------------------------
 
@@ -13,9 +13,14 @@ document.body.appendChild(renderer.domElement);
 
 export const layers: Record<string,THREE.Group> = {};
 
+const geometry = new THREE.SphereGeometry(100, 16, 16);
+const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+const targetViewSphere = new THREE.Mesh(geometry, material);
+scene.add(targetViewSphere);
+
 // --- Camera control state ---------------------------------------------------
 
-let defaults = {
+const defaults = {
     sph: { theta: 0.4, phi: 0.5, r: 1000 },
     target: new THREE.Vector3(),
 };
@@ -26,7 +31,8 @@ export let target = new THREE.Vector3();
 export function cameraReset() {
     sph    = { ...defaults.sph };
     target = new THREE.Vector3(defaults.target.x, defaults.target.y, defaults.target.z);
-    history.replaceState(null, '', window.location.pathname);
+    history.replaceState(null, '', globalThis.location.pathname);
+    targetViewSphere.position.copy(target);
 }
 
 export function resizeEvent(tileStates: Tile[]) {
@@ -39,17 +45,41 @@ export function resizeEvent(tileStates: Tile[]) {
 // --- Code -------------------------------------------------------------------
 
 export function addLayer(key: string, group: THREE.Group) {
-  layers[key] = group;
-  const cb = document.querySelector(`input[data-layer="${key}"]`);
-  if (cb) group.visible = cb.checked;
-  addGroup(group);
+    layers[key] = group;
+    const cb = document.querySelector(`input[data-layer="${key}"]`)! as HTMLInputElement;
+    if (cb) group.visible = cb.checked;
+    scene.add(group);
 }
 
-function addGroup(grp: THREE.Group) {
-    scene.add(grp);
+export function cameraInit(bounds: APIOverview) {
+    const center_x = ((bounds.xmax - bounds.xmin) / 2) + bounds.xmin;
+    const center_y = ((bounds.ymax - bounds.ymin) / 2) + bounds.ymin;
+    cameraSet(
+        Math.max(center_x - 5000, bounds.xmin),
+        Math.max(center_y - 5000, bounds.ymin),
+        bounds.zmin,
+        Math.min(center_x + 5000, bounds.xmax),
+        Math.min(center_y + 5000, bounds.ymin),
+        bounds.zmax,
+    );
+
+    const boundingBox = new THREE.Box3(
+        new THREE.Vector3(
+            bounds.xmin - center_x,
+            bounds.ymin - center_y,
+            bounds.zmin,
+        ),
+        new THREE.Vector3(
+            bounds.xmax - center_x,
+            bounds.ymax - center_y,
+            bounds.zmax,
+        )
+    );
+    const viewBox = new THREE.Box3Helper(boundingBox, 0x00000FF);
+    scene.add(viewBox);
 }
 
-export function cameraSet(
+function cameraSet(
     gMinX: number,
     gMinY: number,
     gMinZ: number,
@@ -62,15 +92,38 @@ export function cameraSet(
     sph.r = Math.max(gMaxX - gMinX, gMaxY - gMinY) * 0.9;
     defaults.sph.r = sph.r;
 
+    targetViewSphere.position.copy(target);
+
     camera.position.set(
-      target.x + sph.r * Math.sin(sph.phi) * Math.sin(sph.theta),
-      target.y + sph.r * Math.sin(sph.phi) * Math.cos(sph.theta) * -1.0,
-      target.z + sph.r * Math.cos(sph.phi)
+        target.x + sph.r * Math.sin(sph.phi) * Math.sin(sph.theta),
+        target.y + sph.r * Math.sin(sph.phi) * Math.cos(sph.theta) * -1.0,
+        target.z + sph.r * Math.cos(sph.phi)
     );
     camera.lookAt(target);
     camera.updateMatrixWorld();
 }
 
+export function updateCamera(dx: number, dy: number, pan: boolean) {
+    if (!pan) {
+        sph.theta -= dx * 0.005;
+        sph.phi = Math.max(0.05, Math.min(Math.PI * 0.95, sph.phi - dy * 0.005));
+    } else {
+        // Both vectors are in the XY (ground) plane so panning never drifts target.z
+        const right = new THREE.Vector3(
+            Math.cos(sph.theta),
+            Math.sin(sph.theta),
+            0,
+        );
+        const forward = new THREE.Vector3(
+            -Math.sin(sph.theta),
+            Math.cos(sph.theta),
+            0,
+        );
+        target.addScaledVector(right, -dx * sph.r * 0.001);
+        target.addScaledVector(forward, dy * sph.r * 0.001);
+        targetViewSphere.position.copy(target);
+    }
+}
 
 export function getFrustum() {
     camera.updateMatrixWorld();
@@ -113,7 +166,8 @@ function updateGroundFocus() {
 // Returns the maximum octree depth we want to *display* for this node's spatial
 // region, given the current camera state.  A node is visible iff its depth
 // is ≤ the returned value.
-export function computeNodeTargetDepth(node) {
+export function computeNodeTargetDepth(node: Node) {
+    if (node.tile.box === null) return node.tile.maxAvailDepth;
     const tileSize = node.tile.box.max.x - node.tile.box.min.x;
     const cx = (node.box.min.x + node.box.max.x) / 2;
     const cy = (node.box.min.y + node.box.max.y) / 2;
@@ -140,7 +194,7 @@ export function computeNodeTargetDepth(node) {
     return distDepth;
 }
 
-function applyDisplayLOD(tileStates) {
+function applyDisplayLOD(tileStates: Tile[]) {
     updateGroundFocus();
     _lodMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _lodFrustum.setFromProjectionMatrix(_lodMatrix);
@@ -156,7 +210,7 @@ function applyDisplayLOD(tileStates) {
     }
 }
 
-export function render(tileStates) {
+export function render(tileStates: Tile[]) {
     camera.position.set(
         target.x + sph.r * Math.sin(sph.phi) * Math.sin(sph.theta),
         target.y + sph.r * Math.sin(sph.phi) * Math.cos(sph.theta) * -1.0,

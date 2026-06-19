@@ -131,7 +131,7 @@ export function maybeUpdateClsLegend(tileState: Tile[]) {
     const seen: Set<number> = new Set();
     for (const tile of tileState) for (const cls of tile.seenClasses) seen.add(cls);
 
-    const clsLegend = document.getElementById('cls-legend');
+    const clsLegend = document.getElementById('cls-legend')!;
     for (const cls of [...seen].sort((a, b) => a - b)) {
         if (cls > 18) continue;
         const c = cls * 3;
