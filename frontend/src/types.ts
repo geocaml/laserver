@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { Copc } from "copc";
+import { Copc, Hierarchy } from "copc";
 
 export interface Node {
     tile: Tile;
@@ -8,8 +8,9 @@ export interface Node {
     nx: number;
     ny: number;
     nz: number;
-    entry: undefined;
+    entry: Hierarchy.Node;
     box: THREE.Box3;
+    debugFrame: THREE.Box3Helper;
     loaded: boolean;
     loading: boolean;
     failed: boolean;
@@ -29,7 +30,8 @@ export interface Tile {
     copc : Copc | null;
     maxAvailDepth: number;
     hasRGB: boolean;
-    box: null;
+    box: THREE.Box3 | null;
+    debugFrame: THREE.Box3Helper | null;
     nodeMap: Record<string, Node>;
     allNodes: Node[];
     group: THREE.Group;
@@ -63,4 +65,13 @@ export interface APITileInfo {
     path: string;
     point_count: number;
     bounds: APIBounds;
+}
+
+export interface APIOverview {
+  xmin: number;
+  ymin: number;
+  zmin: number;
+  xmax: number;
+  ymax: number;
+  zmax: number;
 }
