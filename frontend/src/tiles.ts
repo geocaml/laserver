@@ -288,6 +288,7 @@ async function loadNode(node: Node) {
         );
         fillNodeBuffer(node, view);
         updateStatusBar(tileState);
+        if (node.debugFrame) node.debugFrame.visible = debugMode.get();
         render(tileState);
     } catch (err) {
         console.error("Load error:", node.tile.url, node.keyStr, err);
@@ -303,6 +304,7 @@ async function loadNode(node: Node) {
 
 function unloadNode(node: Node) {
     if (!node.loaded || node.loading) return;
+    if (node.debugFrame) node.debugFrame.visible = false;
     if (node.mesh) node.tile.group.remove(node.mesh);
     if (node.geo) node.geo.dispose();
     node.posArr = null;

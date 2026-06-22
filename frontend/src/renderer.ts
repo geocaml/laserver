@@ -183,12 +183,26 @@ function updateGroundFocus() {
 // region, given the current camera state.  A node is visible iff its depth
 // is ≤ the returned value.
 export function computeNodeTargetDepth(node: Node) {
-    if (node.tile.box === null) return node.tile.maxAvailDepth;
+    if (node.tile.box === null) return 0;
+
+//     const tileSize = node.tile.box.max.x - node.tile.box.min.x;
+//     const zoomRatio = tileSize / sph.r;
+//     if (zoomRatio < 0.6) return 0;
+//
+//     const cx = (node.box.min.x + node.box.max.x) / 2;
+//     const cy = (node.box.min.y + node.box.max.y) / 2;
+//     const dist2d = Math.hypot(_groundFocus.x - cx, _groundFocus.y - cy);
+//     // const dist2d = Math.hypot(target.x - cx, target.y - cy);
+//
+//     if (dist2d < 5000) return 1;
+//
+//     return 0;
+// }
     const tileSize = node.tile.box.max.x - node.tile.box.min.x;
     const cx = (node.box.min.x + node.box.max.x) / 2;
     const cy = (node.box.min.y + node.box.max.y) / 2;
-    // const dist2d = Math.hypot(_groundFocus.x - cx, _groundFocus.y - cy);
-    const dist2d = Math.hypot(target.x - cx, target.y - cy);
+    const dist2d = Math.hypot(_groundFocus.x - cx, _groundFocus.y - cy);
+    // const dist2d = Math.hypot(target.x - cx, target.y - cy);
 
     // Overall zoom depth: how much global detail do we want?
     const zoomRatio = tileSize / sph.r;
